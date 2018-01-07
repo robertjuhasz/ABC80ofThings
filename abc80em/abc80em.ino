@@ -326,37 +326,7 @@ sword LoopZ80(register Z80 *R)
     //delay(2);
   uint8_t i;
   bool charavail=false;
-  //Serial.println(R->PC.W);
-  // deal with incoming clients
-//  if (server.hasClient()){
-//    for(i = 0; i < MAX_SRV_CLIENTS; i++){
-//      if (!serverClients[i] || !serverClients[i].connected()){
-//        if(serverClients[i]) serverClients[i].stop();
-//        serverClients[i] = server.available();
-//        continue;
-//      }
-//    }
-//    //no free spot
-//    WiFiClient serverClient = server.available();
-//    serverClient.stop();
-//  }
-  
-    //printf("PC: %x %x %x %x, BC:%x, DE:%x, HL:%x (HL):%x\n",R->PC.W,RdZ80(R->PC.W),RdZ80(R->PC.W+1),RdZ80(R->PC.W+2),R->BC.W,R->DE.W,R->HL.W );
-    //Serial.println("L");
-    //Serial.print(R->ICount);
-//    for(i = 0; i < MAX_SRV_CLIENTS; i++){
-//    if (serverClients[i] && serverClients[i].connected()){
-//      if(serverClients[i].available()){
-//         if (serverClients[i].available()) 
-//            { 
-//               inchar = (serverClients[i].read()) & 127;
-//               charavail = true;
-//            }
-//        //you can reply to the client here
-//        serverClients[i].write("Hello!\n", 7);
-//      }
-//    }
-//   }
+ 
     if (inchar & 128 ) inchar = inchar & 127;
     if (Serial.available())
       {
@@ -439,43 +409,13 @@ void setup() {
     ; // wait for serial port to connect. Needed for Leonardo only
   }
 
-//   Serial.println(GLCD.Init(NON_INVERTED));   // initialise the library, non inverted writes pixels onto a clear screen
-//  GLCD.ClearScreen(); 
-//  // GLCD.SelectFont(System5x7); // switch to fixed width system font 
-//    GLCD.GotoXY(2, 2);
-//  GLCD.Puts("Hej hopp: ");
-//  GLCD.PrintNumber(123);
-//  GLCD.DrawRoundRect(16,0,99,18, 5, BLACK);
-  //Serial.print("\nInitializing SD card...");
-
-  // On the Ethernet Shield, CS is pin 4. It's set as an output by default.
-  // Note that even if it's not used as the CS pin, the hardware SS pin 
-  // (10 on most Arduino boards, 53 on the Mega) must be left as an output 
-  // or the SD library functions will not work. 
-  //pinMode(chipSelect, OUTPUT);     // change this to 53 on a mega
-
   if (!SD.begin(chipSelect)) {
     Serial.println("initialization failed!");
     return;
   }
   Serial.println("initialization done.");
   machinetype=81;
-
-  // start WIFI stuff
-//  WiFi.begin(ssid, password);
-//  Serial.print("\nConnecting to "); Serial.println(ssid);
-//  uint8_t i = 0;
-//  while (WiFi.status() != WL_CONNECTED && i++ < 20) delay(500);
-//  if(i == 21){
-//    Serial.print("Could not connect to"); Serial.println(ssid);
-//    while(1) delay(500);
-//  }
-//  server.begin();
-//  server.setNoDelay(true);
-//  Serial.print("Ready! Use 'telnet ");
-//  Serial.print(WiFi.localIP());
-//  Serial.println(" 21' to connect");
-  waitesc();
+  waitesc(); // strictly not necessary...
 }
 
 void loop() {
