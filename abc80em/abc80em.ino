@@ -17,15 +17,32 @@
  *  
  *  I will possibly add an ESP8266 chip serially to the board and write a little device driver for ABC800 basic later..
  *  
+ *  
+ *  
+ *  
+ *  Update 2018-03-25: Changed code to 
+ *                          - support mainly ESP32
+ *                          - include sleep function (out 99,sectosleep)
+ *                          - use SPIFFS file system for disks. Only two fit (640K) /MF0.DSK and /MF1.DSK
+ *                          - hacked ABC81 ROM to output to terminal instead of video RAM
+ *  
  * 
  */
 
-#include <SD.h>
+//#include <SD.h>
+//#include "SD.h"
+//#include "SPI.h"
+#include <FS.h>
+#include <SPIFFS.h>
 
 #include "Z80.h"
 #include "basicii.h"
 #include "abc80rom.h"
 #include "abc802rom.h"
+
+
+#define uS_TO_S_FACTOR 1000000
+
 
 #define RAMSIZE 32768
 byte ram[RAMSIZE];
@@ -50,27 +67,27 @@ sword romlen;
 Z80 z80regs;
 
 
-#define PRINTF_SERIAL
-#ifdef __cplusplus
-  extern "C" {
-    //__attribute__((weak)) omit this as used in _write() in Print.cpp
-  
-    // this function overrides the one of the same name in Print.cpp
-    int _write(int file, char *ptr, int len)
-    {
-        // send chars to zero or more outputs
-        for (int i = 0; i < len; i++)  {
-          #ifdef PRINTF_SERIAL  // see #define at top of file
-            Serial.print(ptr[i]);
-          #endif
-          #ifdef PRINTF_SERIAL1  // see #define at top of file
-            Serial1.print(ptr[i]);
-          #endif
-        }
-        return 0;
-    }
-  } // end extern "C" section
-#endif
+//#define PRINTF_SERIAL
+//#ifdef __cplusplus
+//  extern "C" {
+//    //__attribute__((weak)) omit this as used in _write() in Print.cpp
+//  
+//    // this function overrides the one of the same name in Print.cpp
+//    int _write(int file, char *ptr, int len)
+//    {
+//        // send chars to zero or more outputs
+//        for (int i = 0; i < len; i++)  {
+//          #ifdef PRINTF_SERIAL  // see #define at top of file
+//            Serial.print(ptr[i]);
+//          #endif
+//          #ifdef PRINTF_SERIAL1  // see #define at top of file
+//            Serial1.print(ptr[i]);
+//          #endif
+//        }
+//        return 0;
+//    }
+//  } // end extern "C" section
+//#endif
 
 // change this to match your SD shield or module;
 // Arduino Ethernet shield: pin 4
@@ -81,7 +98,7 @@ Z80 z80regs;
 // Teensy 2.0: pin 0
 // Teensy++ 2.0: pin 20
 // CS for ESP8266 adafruit feather huzzah
-const int chipSelect = BUILTIN_SDCARD; //Teensy 3.6    
+const int chipSelect = 3; //Teensy 3.6    
 
 
 /** RdZ80()/WrZ80() ******************************************/
@@ -122,8 +139,10 @@ void WrZ80(register sword Addr,register byte Value)
             c= (byte)(Addr & 127);
             if (c>=40) { c-=40; r+=8; }
             if (c>=40) { c-=40; r+=8; }
-            poscur(r,c);
-            outchar(((char)Value));
+            //poscur(r,c);
+            //outchar(((char)Value));
+            //Serial.write(":");
+            //Serial.print((int)z80regs.PC.W);
        
           }
         }
@@ -133,12 +152,13 @@ void WrZ80(register sword Addr,register byte Value)
             {
               vmem[(Addr-(32768-2048)) & 2047]=Value;
               //Serial.print(Addr-32768-2048);
-              r=(byte)(( Addr-0x7800 ) /80);
-              c= (byte)((Addr-0x7800) % 80);
-     
-              poscur(r,c);
+              //***************** code to mirror vram to serial output. currently inactive********
+              //r=(byte)(( Addr-0x7800 ) /80);
+              //c= (byte)((Addr-0x7800) % 80);
+              //poscur(r,c);
               //Serial.print(r); Serial.print(" "); Serial.print(c);
-              Serial.print((char)Value);
+              //Serial.print((char)Value);
+              //**********************************************************************************
          
             }
         }
@@ -189,6 +209,16 @@ void OutZ80(register sword Port,register byte Value)
                if (mffile [mfdrive]) mffile[mfdrive].seek(((mfcmd[2]<<5)+((mfcmd[3]>>5)<<2)+(mfcmd[3] & 3))*256);
               if (mffile [mfdrive])  
                  mffile[mfdrive].read(mffilebuf,256);
+
+//              Serial.print(mfdrive); Serial.print(" :");
+//              Serial.print(mfsec); Serial.print(" :");
+//              Serial.print(((mfcmd[2]<<5)+((mfcmd[3]>>5)<<2)+(mfcmd[3] & 3))*256); Serial.println(" :");
+//                for (int jj=0;jj<256;jj++) {
+//                        Serial.print(mffilebuf[jj]);
+//                        Serial.print(" ");
+//                }
+//                Serial.println("");
+              
               
               mfdataidx = 0;  // set to 0 to be readyfor buffer read
               mfstat1 = 8 + 1;
@@ -245,6 +275,14 @@ void OutZ80(register sword Port,register byte Value)
         case 1: 
           cardsel=Value; // card select
          break;
+
+        case 99: // sleep for portval seconds
+              esp_sleep_enable_timer_wakeup(Value * uS_TO_S_FACTOR);
+              Serial.println("Setup ESP32 to sleep for every " + String(Value) +" Seconds");
+              Serial.println("Going to sleep now");
+              esp_deep_sleep_start();
+              
+        break;
       }
       
         
@@ -298,7 +336,9 @@ byte InZ80(register sword Port)
 /************************************ TO BE WRITTEN BY USER **/
 void PatchZ80(register Z80 *R)
   {
-    
+    //Serial.write("P");
+    for (int ii=0;ii<R->BC.W;ii++)
+          Serial.write(RdZ80(R->HL.W+ii)); // traps basic print routine
   }
 
 /** DebugZ80() ***********************************************/
@@ -326,12 +366,43 @@ sword LoopZ80(register Z80 *R)
     //delay(2);
   uint8_t i;
   bool charavail=false;
- 
+  //Serial.println(R->PC.W);
+  // deal with incoming clients
+//  if (server.hasClient()){
+//    for(i = 0; i < MAX_SRV_CLIENTS; i++){
+//      if (!serverClients[i] || !serverClients[i].connected()){
+//        if(serverClients[i]) serverClients[i].stop();
+//        serverClients[i] = server.available();
+//        continue;
+//      }
+//    }
+//    //no free spot
+//    WiFiClient serverClient = server.available();
+//    serverClient.stop();
+//  }
+  
+    //printf("PC: %x %x %x %x, BC:%x, DE:%x, HL:%x (HL):%x\n",R->PC.W,RdZ80(R->PC.W),RdZ80(R->PC.W+1),RdZ80(R->PC.W+2),R->BC.W,R->DE.W,R->HL.W );
+    //Serial.println("L");
+    //Serial.print(R->ICount);
+//    for(i = 0; i < MAX_SRV_CLIENTS; i++){
+//    if (serverClients[i] && serverClients[i].connected()){
+//      if(serverClients[i].available()){
+//         if (serverClients[i].available()) 
+//            { 
+//               inchar = (serverClients[i].read()) & 127;
+//               charavail = true;
+//            }
+//        //you can reply to the client here
+//        serverClients[i].write("Hello!\n", 7);
+//      }
+//    }
+//   }
     if (inchar & 128 ) inchar = inchar & 127;
     if (Serial.available())
       {
+        //Serial.write("%");
         inchar=(byte)(Serial.read() & 255) | 128;
-        //Serial.print(inchar);
+        //Serial.print(inchar & 127);
         //inchar='#'+128;
         charavail = true;
         
@@ -390,7 +461,7 @@ void openfiles()
      mffile[ii].close();
       Serial.print("Closed "); Serial.println(ff);
       }
-    mffile[ii]=SD.open(ff,FILE_WRITE);
+    mffile[ii]=SPIFFS.open(ff,"r+");
     if (mffile[ii])
         Serial.print("Success opening ");
     else
@@ -400,22 +471,84 @@ void openfiles()
   
 }
 
+void listDir(fs::FS &fs, const char * dirname, uint8_t levels){
+    Serial.printf("Listing directory: %s\n", dirname);
+
+    File root = fs.open(dirname);
+    if(!root){
+        Serial.println("Failed to open directory");
+        return;
+    }
+    if(!root.isDirectory()){
+        Serial.println("Not a directory");
+        return;
+    }
+
+    File file = root.openNextFile();
+    while(file){
+        if(file.isDirectory()){
+            Serial.print("  DIR : ");
+            Serial.println(file.name());
+            if(levels){
+                listDir(fs, file.name(), levels -1);
+            }
+        } else {
+            Serial.print("  FILE: ");
+            Serial.print(file.name());
+            Serial.print("  SIZE: ");
+            Serial.println(file.size());
+        }
+        file = root.openNextFile();
+    }
+}
+
 void setup() {
   // put your setup code here, to run once:
   inchar=0;
   //pinMode(13,OUTPUT);  
   Serial.begin(115200);
+  Serial.write("hello esp32");
     while (!Serial) {
     ; // wait for serial port to connect. Needed for Leonardo only
   }
 
-  if (!SD.begin(chipSelect)) {
+//   Serial.println(GLCD.Init(NON_INVERTED));   // initialise the library, non inverted writes pixels onto a clear screen
+//  GLCD.ClearScreen(); 
+//  // GLCD.SelectFont(System5x7); // switch to fixed width system font 
+//    GLCD.GotoXY(2, 2);
+//  GLCD.Puts("Hej hopp: ");
+//  GLCD.PrintNumber(123);
+//  GLCD.DrawRoundRect(16,0,99,18, 5, BLACK);
+  //Serial.print("\nInitializing SD card...");
+
+  // On the Ethernet Shield, CS is pin 4. It's set as an output by default.
+  // Note that even if it's not used as the CS pin, the hardware SS pin 
+  // (10 on most Arduino boards, 53 on the Mega) must be left as an output 
+  // or the SD library functions will not work. 
+  //pinMode(chipSelect, OUTPUT);     // change this to 53 on a mega
+
+  if (!SPIFFS.begin()) {
     Serial.println("initialization failed!");
     return;
   }
   Serial.println("initialization done.");
   machinetype=81;
-  waitesc(); // strictly not necessary...
+
+  // start WIFI stuff
+//  WiFi.begin(ssid, password);
+//  Serial.print("\nConnecting to "); Serial.println(ssid);
+//  uint8_t i = 0;
+//  while (WiFi.status() != WL_CONNECTED && i++ < 20) delay(500);
+//  if(i == 21){
+//    Serial.print("Could not connect to"); Serial.println(ssid);
+//    while(1) delay(500);
+//  }
+//  server.begin();
+//  server.setNoDelay(true);
+//  Serial.print("Ready! Use 'telnet ");
+//  Serial.print(WiFi.localIP());
+//  Serial.println(" 21' to connect");
+  waitesc();
 }
 
 void loop() {
@@ -425,8 +558,9 @@ void loop() {
   Serial.println("Hello!");
   Serial.println(sizeof(sword));
   Serial.println(sizeof(byte));
+   listDir(SPIFFS, "/", 0);
   openfiles();
-  //machinetype = 1;
+  machinetype = 81;
   setmachine();
   z80regs.IPeriod=10000;
   ResetZ80(&z80regs);
