@@ -26,6 +26,9 @@
  *                          - use SPIFFS file system for disks. Only two fit (640K) /MF0.DSK and /MF1.DSK
  *                          - hacked ABC81 ROM to output to terminal instead of video RAM
  *  
+ *  Update 2022-01-01: RPI 2040 port
+ *                          - BOOTSEL resets
+ *                          - uses LittleFS with disk images in data dir as before
  * 
  */
 
