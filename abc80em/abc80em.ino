@@ -397,6 +397,16 @@ sword LoopZ80(register Z80 *R)
 //      }
 //    }
 //   }
+
+    if (BOOTSEL) {
+      Serial.printf("\a\aYou pressed BOOTSEL");
+      // Wait for BOOTSEL to be released
+      while (BOOTSEL) {
+        delay(1);
+      }
+      return INT_QUIT;
+    }
+
     if (inchar & 128 ) inchar = inchar & 127;
     if (Serial.available())
       {
@@ -528,7 +538,7 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
-
+  
   digitalWrite(13,1);
   Serial.println("Hello!");
   Serial.println(sizeof(sword));
