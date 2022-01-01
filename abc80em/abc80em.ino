@@ -32,9 +32,9 @@
 //#include <SD.h>
 //#include "SD.h"
 //#include "SPI.h"
-#include <FS.h>
-#include <SPIFFS.h>
-
+//#include <FS.h>
+//#include <SPIFFS.h>
+#include "LittleFS.h" // LittleFS is declared
 #include "Z80.h"
 #include "basicii.h"
 #include "abc80rom.h"
@@ -277,10 +277,10 @@ void OutZ80(register sword Port,register byte Value)
          break;
 
         case 99: // sleep for portval seconds
-              esp_sleep_enable_timer_wakeup(Value * uS_TO_S_FACTOR);
+              //esp_sleep_enable_timer_wakeup(Value * uS_TO_S_FACTOR);
               Serial.println("Setup ESP32 to sleep for every " + String(Value) +" Seconds");
               Serial.println("Going to sleep now");
-              esp_deep_sleep_start();
+              //esp_deep_sleep_start();
               
         break;
       }
@@ -461,7 +461,7 @@ void openfiles()
      mffile[ii].close();
       Serial.print("Closed "); Serial.println(ff);
       }
-    mffile[ii]=SPIFFS.open(ff,"r+");
+    mffile[ii]=LittleFS.open(ff,"r+");
     if (mffile[ii])
         Serial.print("Success opening ");
     else
@@ -471,35 +471,8 @@ void openfiles()
   
 }
 
-void listDir(fs::FS &fs, const char * dirname, uint8_t levels){
+void listDir(const char * dirname, uint8_t levels){
     Serial.printf("Listing directory: %s\n", dirname);
-
-    File root = fs.open(dirname);
-    if(!root){
-        Serial.println("Failed to open directory");
-        return;
-    }
-    if(!root.isDirectory()){
-        Serial.println("Not a directory");
-        return;
-    }
-
-    File file = root.openNextFile();
-    while(file){
-        if(file.isDirectory()){
-            Serial.print("  DIR : ");
-            Serial.println(file.name());
-            if(levels){
-                listDir(fs, file.name(), levels -1);
-            }
-        } else {
-            Serial.print("  FILE: ");
-            Serial.print(file.name());
-            Serial.print("  SIZE: ");
-            Serial.println(file.size());
-        }
-        file = root.openNextFile();
-    }
 }
 
 void setup() {
@@ -507,7 +480,9 @@ void setup() {
   inchar=0;
   //pinMode(13,OUTPUT);  
   Serial.begin(115200);
-  Serial.write("hello esp32");
+  Serial.write("hello rp2040! ");
+  LittleFS.begin();
+  Serial.write(" LittleFS begun");
     while (!Serial) {
     ; // wait for serial port to connect. Needed for Leonardo only
   }
@@ -527,8 +502,8 @@ void setup() {
   // or the SD library functions will not work. 
   //pinMode(chipSelect, OUTPUT);     // change this to 53 on a mega
 
-  if (!SPIFFS.begin()) {
-    Serial.println("initialization failed!");
+  if (!LittleFS.begin()) {
+    Serial.println("LittleFS initialization failed!");
     return;
   }
   Serial.println("initialization done.");
@@ -558,7 +533,7 @@ void loop() {
   Serial.println("Hello!");
   Serial.println(sizeof(sword));
   Serial.println(sizeof(byte));
-   listDir(SPIFFS, "/", 0);
+  // listDir("/");
   openfiles();
   machinetype = 81;
   setmachine();
