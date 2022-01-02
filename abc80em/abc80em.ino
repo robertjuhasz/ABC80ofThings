@@ -37,7 +37,7 @@
 //#include "SPI.h"
 //#include <FS.h>
 //#include <SPIFFS.h>
-#include "LittleFS.h" // LittleFS is declared
+#include <LittleFS.h> // LittleFS is declared
 #include "Z80.h"
 #include "basicii.h"
 #include "abc80rom.h"
@@ -59,7 +59,7 @@ File mffile[4];
 static int mfdataidx = 0;
 static int mfcmdidx = 0;
 static byte mfcmd[4];
-static byte mffilebuf[256];
+static byte mffilebuf[4][256];
 static int mfstat1 = 128 + 8 + 1;
 static int mfdrive,mfsec;
 
@@ -209,18 +209,19 @@ void OutZ80(register sword Port,register byte Value)
                 mfdrive=mfcmd [1]&3;
                 mfsec=(mfcmd[3] & 2)+(mfcmd[3]>>5)*4; // abc832 has cluster size 4. bit0-1 sec within cluster, bit 5-7 cluster no
  
-               if (mffile [mfdrive]) mffile[mfdrive].seek(((mfcmd[2]<<5)+((mfcmd[3]>>5)<<2)+(mfcmd[3] & 3))*256);
+               if (mffile [mfdrive]) mffile[mfdrive].seek(((mfcmd[2]<<5)+((mfcmd[3]>>5)<<2)+(mfcmd[3] & 3))*256,SeekSet);
               if (mffile [mfdrive])  
-                 mffile[mfdrive].read(mffilebuf,256);
+                 mffile[mfdrive].read(mffilebuf[mfdrive],256);
 
-//              Serial.print(mfdrive); Serial.print(" :");
-//              Serial.print(mfsec); Serial.print(" :");
-//              Serial.print(((mfcmd[2]<<5)+((mfcmd[3]>>5)<<2)+(mfcmd[3] & 3))*256); Serial.println(" :");
-//                for (int jj=0;jj<256;jj++) {
-//                        Serial.print(mffilebuf[jj]);
-//                        Serial.print(" ");
-//                }
-//                Serial.println("");
+
+              Serial.print(mfdrive); Serial.print(" :");
+              Serial.print(mfsec); Serial.print(" :");
+              Serial.print(((mfcmd[2]<<5)+((mfcmd[3]>>5)<<2)+(mfcmd[3] & 3))*256); Serial.println(" :");
+                for (int jj=0;jj<256;jj++) {
+                        Serial.print(mffilebuf[mfdrive][jj]);
+                        Serial.print(" ");
+                }
+                Serial.println("");
               
               
               mfdataidx = 0;  // set to 0 to be readyfor buffer read
@@ -232,7 +233,7 @@ void OutZ80(register sword Port,register byte Value)
     
               if ((mfdataidx < 256) && (mfdataidx >= 0))
               {
-                mffilebuf[mfdataidx] = (byte) (Value & 0xff);
+                mffilebuf[mfdrive][mfdataidx] = (byte) (Value & 0xff);
 
               }
               mfdataidx++;  // increase pointer: first time we will get
@@ -245,9 +246,16 @@ void OutZ80(register sword Port,register byte Value)
                 // if buffer is full, write it!
                 mfdrive=mfcmd [1]&3;
                 mfsec=(mfcmd[3] & 2)+4*(mfcmd[3]>>5); // abc832 has cluster size 4. bit0-1 sec within cluster, bit 5-7 cluster no
-                if (mffile [mfdrive]) mffile[mfdrive].seek(((mfcmd[2]<<5)+((mfcmd[3]>>5)<<2)+(mfcmd[3] & 3))*256);
+                int seekPos = ((mfcmd[2]<<5)+((mfcmd[3]>>5)<<2)+(mfcmd[3] & 3))*256;
+                if (mffile [mfdrive]) mffile[mfdrive].seek(seekPos,SeekSet);
+                Serial.print("File write:");
+                Serial.println(mfdrive);
+                Serial.println(seekPos);
+                Serial.println(mffile[mfdrive].position());
                 if (mffile [mfdrive])  
-                   mffile[mfdrive].write(mffilebuf,256);   
+                   Serial.println(mffile[mfdrive].write(mffilebuf[mfdrive],256));   
+                Serial.println("pos after write:");
+                Serial.println(mffile[mfdrive].position());   
                 mfcmdidx = 0;
                 mfdataidx = 0;
                 mfstat1 = 8 + 1 + 128;
@@ -311,9 +319,10 @@ byte InZ80(register sword Port)
                 res = 0;
               else if (mfcmd[0] == 3)
               {
+                mfdrive=mfcmd [1]&3;
                 if (mfdataidx < 256)
                 {
-                  res = (mffilebuf[mfdataidx++] & 0xff);
+                  res = (mffilebuf[mfdrive][mfdataidx++] & 0xff);
                 }
                 else
                   res = 0;
@@ -467,14 +476,15 @@ switch(machinetype)
 void openfiles()
 {
   char ff[]="/MF0.DSK";
-  for (int ii=0;ii<4;ii++)
+  for (int ii=0;ii<4;ii++) // only open one file atm
   {
     ff[3]='0'+ii;
-    if (mffile[ii]) {
+    //if (mffile[ii]) {
      mffile[ii].close();
       Serial.print("Closed "); Serial.println(ff);
-      }
-    mffile[ii]=LittleFS.open(ff,"r+");
+     // mffile[ii]=0;
+     // }
+    if (ii==0) mffile[ii]=LittleFS.open(ff,"r+");
     if (mffile[ii])
         Serial.print("Success opening ");
     else
@@ -548,6 +558,27 @@ void loop() {
   Serial.println(sizeof(byte));
   // listDir("/");
   openfiles();
+  uint8_t fsdata[256];
+  for (int i = 0; i < 256; i++) {
+    fsdata[i] = (uint8_t) i;
+  }
+  Serial.println("write test");
+  File f = LittleFS.open("/testwrite.bin", "w+");
+   if (f) Serial.println(f.write(fsdata, 256));
+     if (f) Serial.println(f.write(fsdata, 256));
+   f.close();
+   Serial.println("seek write test");
+   f = LittleFS.open("/testwrite.bin", "r+");
+   Serial.println(f.seek(16,SeekSet));
+   Serial.println(f.write(fsdata,256));
+   Serial.println(f.write(fsdata,256));
+   Serial.println(f.position());
+   Serial.println(f.seek(31,SeekSet));
+   Serial.println(f.write(fsdata,256));
+   Serial.println(f.write(fsdata,256));
+      Serial.println(f.position());
+   f.close();
+   Serial.println("write test end");
   machinetype = 81;
   setmachine();
   z80regs.IPeriod=10000;
