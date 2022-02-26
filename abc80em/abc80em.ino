@@ -27,11 +27,46 @@
  *                          - hacked ABC81 ROM to output to terminal instead of video RAM
  *  
  * 
+ * 
+ * 
+ * 10 INTEGER : EXTEND 
+15 GOTO 60
+20 REM fnwi
+30 OUT 120,VARPTR(A$),121,SWAP%(VARPTR(A$)),122,LEN(A$)
+50 RETURN 
+60 REM -------------main program
+70 B$="G"
+80 A$="Av55:Knas1Boll2Plopp3!"
+90 GOSUB 20
+100 FOR I=0 TO 255 : ; I : NEXT I 
+110 INPUT G$
+120 A$="Ghttp://www.example.com"
+121 A$="Ghttp://pi1/cgi-bin/t.py?first_name=Robert&last_name=Juhasz"
+130 GOSUB 20
+140 WHILE INP(121)
+150   A=INP(122)
+160   PRINT CHR$(A);
+170   IF A=10 THEN PRINT 
+180 WEND 
+191 A$="E" : GOSUB 20
+200 INPUT A$
+210 GOTO 130
+
+ABC81 
  */
 
 //#include <SD.h>
 //#include "SD.h"
 //#include "SPI.h"
+
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WiFiMulti.h>
+#include <HTTPClient.h>
+WiFiMulti wifiMulti;
+HTTPClient http;
+WiFiClient * httpstream; 
+
 #include <FS.h>
 #include <SPIFFS.h>
 
@@ -45,6 +80,7 @@
 
 
 #define RAMSIZE 32768
+#define RAMOFS 32768
 byte ram[RAMSIZE];
 #define VMEMLEN 2048
 #define VMEMOFS (32768-VMEMLEN);
@@ -52,6 +88,11 @@ byte vmem[VMEMLEN];
 
 byte inchar;
 byte cardsel=255;
+static byte wifilo = 0;
+static byte wifihi = 0;
+static byte wifilen = 0;
+static byte wifistat = 0;
+char wifibuf[257];
 File mffile[4];
 static int mfdataidx = 0;
 static int mfcmdidx = 0;
@@ -275,6 +316,92 @@ void OutZ80(register sword Port,register byte Value)
         case 1: 
           cardsel=Value; // card select
          break;
+        case 120: 
+            wifilo = Value; break;
+        case 121: 
+            wifihi = Value; break;
+        case 122: /////////////////////// get length if wifi command and execute it /////////////////////////////////
+              wifilen = Value;
+              wifistat = 0; // success
+              Serial.print("Wifi address:");
+              Serial.print(wifilo+wifihi*256);
+              Serial.print(" Wifi len:");
+              Serial.println(wifilen);
+
+              int ii;
+              for (ii=0; ii<wifilen;ii++)
+                wifibuf[ii]=RdZ80(wifilo+wifihi*256+ii);
+              wifibuf[ii]=0; // end of string
+              switch(wifibuf[0]) {
+                case 'A': // set AP info
+                    for (ii=0;ii<wifilen;ii++) 
+                      if(wifibuf[ii]==':') {
+                        wifibuf[ii]=0;
+                        Serial.println(ii);
+                        break;
+                      }
+                    wifiMulti.addAP((char *)(wifibuf+1), (char *)(wifibuf+ii+1));
+                    
+                  break;
+
+
+                case 'G': // http begin + get
+                    if((wifiMulti.run() == WL_CONNECTED)) {
+                  
+
+                          Serial.print("[HTTP] begin...\n");
+                          // configure traged server and url
+                          //http.begin("https://www.howsmyssl.com/a/check", ca); //HTTPS
+                          http.begin((char *)(wifibuf+1)); //HTTP
+                  
+                          Serial.print("[HTTP] GET...\n");
+                          // start connection and send HTTP header
+                          int httpCode = http.GET();
+                  
+                          // httpCode will be negative on error
+                          if(httpCode > 0) {
+                              // HTTP header has been send and Server response header has been handled
+                              Serial.printf("[HTTP] GET... code: %d\n", httpCode);
+                  
+                              // file found at server
+                              if(httpCode == HTTP_CODE_OK) {
+                                  //String payload = http.getString();
+                  
+                  
+                                httpstream = &(http.getStream());
+                                wifistat = 8; // stream data available
+                                //  while (httpstream->available()) { char c = httpstream->read(); Serial.print(c); }
+                    
+                              }
+                          } else {
+                              Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
+                          }
+                  
+                         
+                          Serial.println("----------------");
+
+                      }
+                      else {
+                        Serial.println("AP not connected");
+                        wifistat = 0; // not connected;
+                        
+                      }
+
+
+
+                
+                      break;
+                  case 'E': // http end
+                      http.end();
+                      wifistat = 2; // connected but no stream
+                      break;
+              
+
+                }
+              break;
+
+
+              /////////////////////// end of wifi routines /////////////////////////////////////////////////////////
 
         case 99: // sleep for portval seconds
               esp_sleep_enable_timer_wakeup(Value * uS_TO_S_FACTOR);
@@ -296,6 +423,13 @@ byte InZ80(register sword Port)
     switch(Port & 255)
     {
       case 56: res= inchar; break;
+      case 120: res = wifistat; break;
+      case 121: if (wifistat == 8) res = httpstream->available() ? 1 : 0;
+                else res = 0;
+              break;
+      case 122: if (wifistat == 8) res = (byte)httpstream->read();
+                else res=0;
+                 break;
       default: res= 255;
     }
 
